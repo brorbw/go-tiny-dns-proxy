@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/miekg/dns"
 	"gopkg.in/yaml.v2"
@@ -13,13 +14,15 @@ import (
 
 type Config struct {
 	UpstreamServers []string `yaml:"upstream_servers"`
+	Timeout         int      `yaml:"timeout"` // Timeout in seconds
 }
 
 var upstreamServers []string
 var serverIndex = 0
 var mu sync.Mutex
+var timeout time.Duration
 
-// Load the upstream servers from the YAML config file
+// Load the upstream servers and timeout from the YAML config file
 func loadConfig(filename string) error {
 	file, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -36,6 +39,13 @@ func loadConfig(filename string) error {
 	}
 
 	upstreamServers = config.UpstreamServers
+
+	// Set the timeout from config (convert it to time.Duration)
+	if config.Timeout <= 0 {
+		return fmt.Errorf("invalid timeout value: must be greater than 0")
+	}
+	timeout = time.Duration(config.Timeout) * time.Second
+
 	return nil
 }
 
@@ -57,15 +67,17 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	// Forward the request to the upstream DNS server
 	client := new(dns.Client)
+	client.Timeout = timeout // Use the timeout from the config
 	response, _, err := client.Exchange(r, upstream)
 	if err != nil {
-		log.Printf("Failed to forward query to %s: %v\n", upstream, err)
+		log.Printf("Failed to forward query to %s: %v\nRequest: %+v\n", upstream, err, r)
 		return
 	}
-	log.Printf("Forwarding response from %s to %s", upstream, w.RemoteAddr())
 
 	// Send the response back to the original client
-	w.WriteMsg(response)
+	if err := w.WriteMsg(response); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
 }
 
 // startDNSServer starts the DNS server and listens for incoming queries

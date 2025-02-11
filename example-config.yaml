@@ -2,3 +2,4 @@ upstream_servers:
   - "8.8.8.8:53"
   - "1.1.1.1:53"
   - "9.9.9.9:53"
+timeout: 5 # Timeout in seconds
